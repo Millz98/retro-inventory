@@ -306,40 +306,168 @@ async function fetchMultipleGamePrices(games) {
       
       // Process prices ONLY for YOUR games
       const processedGames = yourGamesData.map(game => {
-        const loosePrice = game['loose-price'] || '$0';
-        const cleanPrice = loosePrice.replace(/[$,]/g, '');
-        const priceUSD = parseFloat(cleanPrice) || 0;
-        const priceCAD = priceUSD * exchangeRate;
+        // Get the appropriate price based on condition
+        let priceField = 'loose-price'; // default
+        let conditionNote = '';
         
-        console.log(`💰 ${game['product-name']}: ${priceUSD} USD → ${priceCAD.toFixed(2)} CAD`);
-        
-        return {
-          ...game,
-          'price-usd': priceUSD,
-          'price-cad': priceCAD
+        // For debugging, log all available price fields
+        const availablePrices = {
+          'loose': game['loose-price'] || 'N/A',
+          'complete': game['complete-price'] || 'N/A', 
+          'new': game['new-price'] || 'N/A',
+          'graded': game['graded-price'] || 'N/A',
+          'box-only': game['box-only-price'] || 'N/A',
+          'manual-only': game['manual-only-price'] || 'N/A'
         };
+        
+        console.log(`📊 ${game['product-name']} - Available prices:`, availablePrices);
+        
+        // Use appropriate price field based on condition
+        const loosePrice = game['loose-price'] || '$0';
+        const completePrice = game['complete-price'] || loosePrice;
+        const newPrice = game['new-price'] || completePrice;
+        const boxOnlyPrice = game['box-only-price'] || loosePrice;
+        const manualOnlyPrice = game['manual-only-price'] || loosePrice;
+        
+        // Select price based on condition (this will be used when we have condition mapping)
+        let selectedPrice = loosePrice;
+        let selectedPriceField = 'loose-price';
+        
+        // For now, use loose price but we'll enhance this with condition mapping
+        selectedPrice = loosePrice;
+        selectedPriceField = 'loose-price';
+        conditionNote = ' (using loose price - condition mapping coming soon)';
+        
+        // Handle Canadian dollar format (C$)
+        let cleanPrice = selectedPrice;
+        if (selectedPrice.startsWith('C$') || selectedPrice.startsWith('C ')) {
+          // Already in CAD, no conversion needed
+          cleanPrice = selectedPrice.replace(/[C$\s]/g, '');
+          const priceCAD = parseFloat(cleanPrice) || 0;
+          
+          console.log(`💰 ${game['product-name']}: ${priceCAD.toFixed(2)} CAD (already in CAD)${conditionNote}`);
+          console.log(`   Raw price: "${selectedPrice}" → Cleaned: "${cleanPrice}" → CAD: ${priceCAD.toFixed(2)}`);
+          
+          return {
+            ...game,
+            'price-usd': priceCAD / exchangeRate, // Convert back to USD for reference
+            'price-cad': priceCAD,
+            'available-prices': availablePrices,
+            'selected-price-field': selectedPriceField,
+            'raw-price': selectedPrice,
+            'is-cad-price': true
+          };
+        } else {
+          // USD price, convert to CAD
+          cleanPrice = selectedPrice.replace(/[$,]/g, '');
+          const priceUSD = parseFloat(cleanPrice) || 0;
+          const priceCAD = priceUSD * exchangeRate;
+          
+          console.log(`💰 ${game['product-name']}: ${priceUSD} USD → ${priceCAD.toFixed(2)} CAD${conditionNote}`);
+          console.log(`   Raw price: "${selectedPrice}" → Cleaned: "${cleanPrice}" → USD: ${priceUSD} → CAD: ${priceCAD.toFixed(2)}`);
+          
+          return {
+            ...game,
+            'price-usd': priceUSD,
+            'price-cad': priceCAD,
+            'available-prices': availablePrices,
+            'selected-price-field': selectedPriceField,
+            'raw-price': selectedPrice,
+            'is-cad-price': false
+          };
+        }
       });
       
       // Match each of YOUR games with the price data
       for (const game of consoleGames) {
         try {
-          const gameData = processedGames.find(pg => 
+          // Try exact match first
+          let gameData = processedGames.find(pg => 
             pg['product-name'] && 
             pg['product-name'].toLowerCase() === game.title.toLowerCase()
           );
           
+          // If no exact match, try fuzzy matching
+          if (!gameData) {
+            console.log(`🔍 No exact match for "${game.title}", trying fuzzy matching...`);
+            
+            // Remove common words and punctuation for better matching
+            const cleanTitle = game.title.toLowerCase()
+              .replace(/[^\w\s]/g, '') // Remove punctuation
+              .replace(/\b(the|a|an|and|or|but|in|on|at|to|for|of|with|by)\b/g, '') // Remove common words
+              .replace(/\s+/g, ' ') // Normalize spaces
+              .trim();
+            
+            gameData = processedGames.find(pg => {
+              if (!pg['product-name']) return false;
+              
+              const cleanProductName = pg['product-name'].toLowerCase()
+                .replace(/[^\w\s]/g, '')
+                .replace(/\b(the|a|an|and|or|but|in|on|at|to|for|of|with|by)\b/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+              
+              return cleanProductName.includes(cleanTitle) || cleanTitle.includes(cleanProductName);
+            });
+            
+            if (gameData) {
+              console.log(`✅ Fuzzy match found: "${game.title}" → "${gameData['product-name']}"`);
+            }
+          }
+          
           if (gameData) {
+            // Get the appropriate price field for this game's condition
+            const priceField = getPriceFieldForCondition(game.condition);
+            const rawPrice = gameData[priceField] || gameData['loose-price'] || '$0';
+            
+            // Handle Canadian dollar format (C$)
+            let finalPriceCAD;
+            let finalPriceUSD;
+            let isCADPrice = false;
+            
+            if (rawPrice.startsWith('C$') || rawPrice.startsWith('C ')) {
+              // Already in CAD, no conversion needed
+              const cleanPrice = rawPrice.replace(/[C$\s]/g, '');
+              finalPriceCAD = parseFloat(cleanPrice) || 0;
+              finalPriceUSD = finalPriceCAD / exchangeRate;
+              isCADPrice = true;
+            } else {
+              // USD price, convert to CAD
+              const cleanPrice = rawPrice.replace(/[$,]/g, '');
+              finalPriceUSD = parseFloat(cleanPrice) || 0;
+              finalPriceCAD = finalPriceUSD * exchangeRate;
+              isCADPrice = false;
+            }
+            
+            // Log detailed price information for debugging
+            console.log(`\n🎯 Price details for "${game.title}":`);
+            console.log(`   Your condition: ${game.condition}`);
+            console.log(`   Selected price field: ${priceField}`);
+            console.log(`   Matched product: ${gameData['product-name']}`);
+            console.log(`   Available prices:`, gameData['available-prices']);
+            console.log(`   Raw price: ${rawPrice}`);
+            console.log(`   USD price: $${finalPriceUSD.toFixed(2)}`);
+            console.log(`   CAD price: $${finalPriceCAD.toFixed(2)} (rate: ${exchangeRate})`);
+            console.log(`   Price format: ${isCADPrice ? 'CAD' : 'USD'}`);
+            
             results.push({
               id: game.id,
               console: game.console,
               title: game.title,
               condition: game.condition,
-              price_cad: gameData['price-cad'],
-              exchange_rate: exchangeRate
+              price_cad: finalPriceCAD,
+              price_usd: finalPriceUSD,
+              exchange_rate: exchangeRate,
+              matched_product: gameData['product-name'],
+              available_prices: gameData['available-prices'],
+              selected_price_field: priceField,
+              raw_price: rawPrice,
+              is_cad_price: isCADPrice
             });
             console.log(`✅ Successfully updated price for: ${game.title}`);
           } else {
             console.warn(`❌ "${game.title}" not found in PriceCharting ${game.console} data`);
+            console.log(`   Available products in this console:`, processedGames.map(pg => pg['product-name']).slice(0, 10));
             errors.push({
               id: game.id,
               title: game.title,
@@ -371,6 +499,21 @@ async function fetchMultipleGamePrices(games) {
   console.log(`\n🎉 Price fetch complete! Successfully updated ${results.length} games, ${errors.length} errors`);
   
   return { results, errors, exchangeRate };
+}
+
+// Add condition mapping function
+function getPriceFieldForCondition(condition) {
+  const conditionMap = {
+    'Cart Only': 'loose-price',
+    'Loose': 'loose-price',
+    'Complete in Box': 'complete-price',
+    'New/Sealed': 'new-price',
+    'Box Only': 'box-only-price',
+    'Manual Only': 'manual-only-price',
+    'Graded': 'graded-price'
+  };
+  
+  return conditionMap[condition] || 'loose-price';
 }
 
 // Add this function for testing proxies
@@ -437,6 +580,124 @@ async function testProxies() {
 // Make it available globally for testing
 if (typeof window !== 'undefined') {
   window.testProxies = testProxies;
+}
+
+// Add debug function for investigating pricing issues
+async function debugGamePrice(gameTitle, consoleName, condition = 'Cart Only') {
+  console.log(`🔍 Debugging price for: "${gameTitle}" (${consoleName}) - Condition: ${condition}`);
+  
+  try {
+    const exchangeRate = await getExchangeRate();
+    console.log(`💱 Current exchange rate: 1 USD = ${exchangeRate.toFixed(6)} CAD`);
+    
+    const consoleId = getConsoleId(consoleName);
+    const targetUrl = `${BASE_URL}?t=${API_TOKEN}&category=${consoleId}-games`;
+    
+    console.log(`📡 Fetching data from: ${targetUrl}`);
+    
+    // Use the first working proxy
+    const proxy = 'https://corsproxy.io/?';
+    const url = proxy + encodeURIComponent(targetUrl);
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const csvText = await response.text();
+    const allGames = parseCSV(csvText);
+    
+    console.log(`📊 Found ${allGames.length} total games in ${consoleId} data`);
+    
+    // Find the specific game
+    const gameData = allGames.find(game => 
+      game['product-name'] && 
+      game['product-name'].toLowerCase().includes(gameTitle.toLowerCase())
+    );
+    
+    if (gameData) {
+      console.log(`\n🎯 Found game data:`);
+      console.log(`   Product name: ${gameData['product-name']}`);
+      console.log(`   Console: ${gameData['console-name'] || 'N/A'}`);
+      
+      // Show all available prices
+      const allPrices = {
+        'Loose': gameData['loose-price'] || 'N/A',
+        'Complete': gameData['complete-price'] || 'N/A',
+        'New': gameData['new-price'] || 'N/A',
+        'Graded': gameData['graded-price'] || 'N/A',
+        'Box Only': gameData['box-only-price'] || 'N/A',
+        'Manual Only': gameData['manual-only-price'] || 'N/A'
+      };
+      
+      console.log(`\n💰 All available prices:`);
+      Object.entries(allPrices).forEach(([priceType, price]) => {
+        console.log(`   ${priceType}: ${price}`);
+      });
+      
+      // Get condition-appropriate price
+      const priceField = getPriceFieldForCondition(condition);
+      const rawPrice = gameData[priceField] || gameData['loose-price'] || '$0';
+      
+      console.log(`\n🎯 Price for condition "${condition}":`);
+      console.log(`   Selected field: ${priceField}`);
+      console.log(`   Raw price: ${rawPrice}`);
+      
+      // Calculate final price
+      let finalPriceCAD;
+      let finalPriceUSD;
+      let isCADPrice = false;
+      
+      if (rawPrice.startsWith('C$') || rawPrice.startsWith('C ')) {
+        // Already in CAD
+        const cleanPrice = rawPrice.replace(/[C$\s]/g, '');
+        finalPriceCAD = parseFloat(cleanPrice) || 0;
+        finalPriceUSD = finalPriceCAD / exchangeRate;
+        isCADPrice = true;
+        console.log(`   Price format: CAD`);
+        console.log(`   Cleaned price: ${cleanPrice}`);
+        console.log(`   CAD price: $${finalPriceCAD.toFixed(2)}`);
+        console.log(`   USD equivalent: $${finalPriceUSD.toFixed(2)}`);
+      } else {
+        // USD price
+        const cleanPrice = rawPrice.replace(/[$,]/g, '');
+        finalPriceUSD = parseFloat(cleanPrice) || 0;
+        finalPriceCAD = finalPriceUSD * exchangeRate;
+        isCADPrice = false;
+        console.log(`   Price format: USD`);
+        console.log(`   Cleaned price: ${cleanPrice}`);
+        console.log(`   USD price: $${finalPriceUSD.toFixed(2)}`);
+        console.log(`   CAD price: $${finalPriceCAD.toFixed(2)}`);
+      }
+      
+      console.log(`\n🔗 Check this game on PriceCharting: https://www.pricecharting.com/game/${consoleId}/${gameData['product-name'].toLowerCase().replace(/\s+/g, '-')}`);
+      
+    } else {
+      console.log(`❌ Game "${gameTitle}" not found in ${consoleId} data`);
+      console.log(`\n🔍 Similar games found:`);
+      const similarGames = allGames.filter(game => 
+        game['product-name'] && 
+        game['product-name'].toLowerCase().includes(gameTitle.toLowerCase().split(' ')[0])
+      ).slice(0, 5);
+      
+      similarGames.forEach(game => {
+        console.log(`   - ${game['product-name']} (${game['loose-price'] || 'N/A'})`);
+      });
+    }
+    
+  } catch (error) {
+    console.error(`❌ Error debugging game price:`, error);
+  }
+}
+
+// Make debug function available globally
+if (typeof window !== 'undefined') {
+  window.debugGamePrice = debugGamePrice;
 }
 
 const RetroGameInventory = () => {
