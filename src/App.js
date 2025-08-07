@@ -1051,7 +1051,8 @@ const RetroGameInventory = () => {
     console: '',
     title: '',
     quantity: 1,
-    condition: 'Cart Only'
+    condition: 'Cart Only',
+    currentPrice: 0
   });
 
   // Add function to clear manually fixed games
@@ -1060,6 +1061,19 @@ const RetroGameInventory = () => {
     localStorage.removeItem('manually-fixed-games');
     console.log('✅ Cleared manually fixed games list');
   };
+
+  // Add debug function to show current state
+  const debugPriceUpdateState = () => {
+    console.log('🔍 Debugging price update state...');
+    console.log('📊 Manually fixed games:', Array.from(manuallyFixedGames));
+    console.log('🎯 Current update errors:', updateErrors.map(e => e.title));
+    console.log('📈 Total inventory games:', inventory.map(g => g.title));
+  };
+
+  // Make debug function available globally
+  if (typeof window !== 'undefined') {
+    window.debugPriceUpdateState = debugPriceUpdateState;
+  }
 
   // Make clear function available globally
   if (typeof window !== 'undefined') {
@@ -1255,6 +1269,7 @@ const RetroGameInventory = () => {
           }
           
           // Game wasn't updated - show as error so user can manually fix it
+          // This includes games with no sales data, regardless of manual fix status
           return true;
         });
         
@@ -1305,21 +1320,29 @@ const RetroGameInventory = () => {
           : item
       );
       setInventory(updatedInventory);
+      
+      // If price was manually changed, add to manually fixed list
+      if (formData.currentPrice !== editingItem.currentPrice) {
+        const newManuallyFixed = new Set(manuallyFixedGames);
+        newManuallyFixed.add(formData.title);
+        setManuallyFixedGames(newManuallyFixed);
+        console.log(`✅ Added "${formData.title}" to manually fixed list (price changed from $${editingItem.currentPrice.toFixed(2)} to $${formData.currentPrice.toFixed(2)} CAD)`);
+      }
+      
       saveInventory(updatedInventory);
       setEditingItem(null);
     } else {
       const newItem = {
         id: Date.now(),
         ...formData,
-        currentPrice: 0, // Will be updated by price API
-        lastPrice: 0
+        lastPrice: formData.currentPrice
       };
       const updatedInventory = [...inventory, newItem];
       setInventory(updatedInventory);
       saveInventory(updatedInventory);
     }
     
-    setFormData({ console: '', title: '', quantity: 1, condition: 'Cart Only' });
+    setFormData({ console: '', title: '', quantity: 1, condition: 'Cart Only', currentPrice: 0 });
     setShowAddForm(false);
   };
 
@@ -1329,7 +1352,8 @@ const RetroGameInventory = () => {
       console: item.console,
       title: item.title,
       quantity: item.quantity,
-      condition: item.condition
+      condition: item.condition,
+      currentPrice: item.currentPrice
     });
     setShowAddForm(true);
   };
@@ -1912,6 +1936,14 @@ const RetroGameInventory = () => {
                 onChange={(e) => setFormData({...formData, quantity: parseInt(e.target.value) || 0})}
                 style={styles.input}
               />
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Price (CAD)"
+                value={formData.currentPrice}
+                onChange={(e) => setFormData({...formData, currentPrice: parseFloat(e.target.value) || 0})}
+                style={styles.input}
+              />
               <select
                 value={formData.condition}
                 onChange={(e) => setFormData({...formData, condition: e.target.value})}
@@ -1934,7 +1966,7 @@ const RetroGameInventory = () => {
                 onClick={() => {
                   setShowAddForm(false);
                   setEditingItem(null);
-                  setFormData({ console: '', title: '', quantity: 1, condition: 'Cart Only' });
+                  setFormData({ console: '', title: '', quantity: 1, condition: 'Cart Only', currentPrice: 0 });
                 }}
                 style={styles.buttonSecondary}
               >
