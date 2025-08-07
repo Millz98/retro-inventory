@@ -199,35 +199,92 @@ async function fetchMultipleGamePrices(games) {
   
   console.log(`📦 Your inventory spans ${Object.keys(gamesByConsole).length} console(s):`, Object.keys(gamesByConsole));
   
+  // Updated proxy list with more reliable services
+  const corsProxies = [
+    'https://corsproxy.io/?',
+    'https://api.codetabs.com/v1/proxy?quest=',
+    'https://cors-anywhere.herokuapp.com/',
+    'https://thingproxy.freeboard.io/fetch/',
+    'https://api.allorigins.win/raw?url='
+  ];
+  
   // Process each console that YOU have games for
   for (const [consoleId, consoleGames] of Object.entries(gamesByConsole)) {
     try {
       console.log(`\n🔍 Fetching data for YOUR ${consoleGames.length} ${consoleId.toUpperCase()} games:`);
       consoleGames.forEach(game => console.log(`   - ${game.title}`));
       
-      // Try multiple CORS proxy services for better reliability
-      const corsProxies = [
-        'https://api.allorigins.win/raw?url=',
-        'https://cors-anywhere.herokuapp.com/',
-        'https://thingproxy.freeboard.io/fetch/'
-      ];
-      
       const targetUrl = `${BASE_URL}?t=${API_TOKEN}&category=${consoleId}-games`;
-      
-      // Try the first proxy
-      let url = corsProxies[0] + encodeURIComponent(targetUrl);
-      
-      console.log(`🌐 Fetching from: ${url}`);
       console.log(`📡 Target URL: ${targetUrl}`);
-      const response = await fetch(url);
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      let csvText = null;
+      let lastError = null;
+      
+      // Try each proxy service until one works
+      for (let i = 0; i < corsProxies.length; i++) {
+        const proxy = corsProxies[i];
+        try {
+          let url;
+          if (proxy.includes('corsproxy.io')) {
+            url = proxy + encodeURIComponent(targetUrl);
+          } else if (proxy.includes('codetabs.com')) {
+            url = proxy + encodeURIComponent(targetUrl);
+          } else if (proxy.includes('allorigins.win')) {
+            url = proxy + encodeURIComponent(targetUrl);
+          } else {
+            url = proxy + targetUrl;
+          }
+          
+          console.log(`🌐 Trying proxy ${i + 1}/${corsProxies.length}: ${proxy.includes('corsproxy.io') ? 'CorsProxy.io' : proxy.includes('codetabs.com') ? 'CodeTabs' : proxy.includes('allorigins.win') ? 'AllOrigins' : proxy.includes('herokuapp.com') ? 'CORS Anywhere' : 'ThingProxy'}`);
+          console.log(`🔗 Full URL: ${url}`);
+          
+          // Add timeout to prevent hanging requests
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+          
+          const response = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+          }
+          
+          csvText = await response.text();
+          
+          // Validate that we got CSV data
+          if (!csvText || csvText.length < 100 || !csvText.includes(',')) {
+            throw new Error('Invalid CSV data received');
+          }
+          
+          console.log(`✅ Successfully fetched data using proxy ${i + 1}`);
+          break; // Success! Exit the proxy loop
+          
+        } catch (proxyError) {
+          lastError = proxyError;
+          console.warn(`❌ Proxy ${i + 1} failed:`, proxyError.message);
+          
+          // If this was a timeout or 408, try the next proxy
+          if (proxyError.name === 'AbortError' || proxyError.message.includes('408')) {
+            console.log(`⏰ Timeout/408 error, trying next proxy...`);
+            continue;
+          }
+          
+          // For other errors, also try next proxy
+          continue;
+        }
       }
       
-      const csvText = await response.text();
-      const allGames = parseCSV(csvText);
+      if (!csvText) {
+        throw new Error(`All proxy services failed. Last error: ${lastError?.message || 'Unknown error'}`);
+      }
       
+      const allGames = parseCSV(csvText);
       console.log(`📊 Downloaded ${allGames.length} total ${consoleId} games from PriceCharting`);
       
       // Filter for North American games FIRST
@@ -314,6 +371,72 @@ async function fetchMultipleGamePrices(games) {
   console.log(`\n🎉 Price fetch complete! Successfully updated ${results.length} games, ${errors.length} errors`);
   
   return { results, errors, exchangeRate };
+}
+
+// Add this function for testing proxies
+async function testProxies() {
+  console.log('🧪 Testing proxy services...');
+  
+  const testUrl = 'https://www.pricecharting.com/price-guide/download-custom?t=7266e10ff3b667fb944fc578b289faffb0b9c2dc&category=nes-games';
+  
+  const proxies = [
+    { name: 'CorsProxy.io', url: 'https://corsproxy.io/?' },
+    { name: 'CodeTabs', url: 'https://api.codetabs.com/v1/proxy?quest=' },
+    { name: 'CORS Anywhere', url: 'https://cors-anywhere.herokuapp.com/' },
+    { name: 'ThingProxy', url: 'https://thingproxy.freeboard.io/fetch/' },
+    { name: 'AllOrigins', url: 'https://api.allorigins.win/raw?url=' }
+  ];
+  
+  for (const proxy of proxies) {
+    try {
+      console.log(`\n🔍 Testing ${proxy.name}...`);
+      
+      let fullUrl;
+      if (proxy.name === 'CorsProxy.io' || proxy.name === 'CodeTabs' || proxy.name === 'AllOrigins') {
+        fullUrl = proxy.url + encodeURIComponent(testUrl);
+      } else {
+        fullUrl = proxy.url + testUrl;
+      }
+      
+      console.log(`  GET ${fullUrl}`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      const startTime = Date.now();
+      const response = await fetch(fullUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      });
+      const endTime = Date.now();
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const text = await response.text();
+        console.log(`✅ ${proxy.name} SUCCESS - Status: ${response.status}, Size: ${text.length} chars, Time: ${endTime - startTime}ms`);
+        if (text.includes('product-name') && text.includes('loose-price')) {
+          console.log(`   📊 Valid CSV data detected`);
+        } else {
+          console.log(`   ⚠️ Response may not be valid CSV data`);
+        }
+      } else {
+        console.log(`❌ ${proxy.name} FAILED - Status: ${response.status} ${response.statusText}`);
+      }
+      
+    } catch (error) {
+      console.log(`❌ ${proxy.name} ERROR - ${error.message}`);
+    }
+  }
+  
+  console.log('\n🎯 Proxy testing complete!');
+}
+
+// Make it available globally for testing
+if (typeof window !== 'undefined') {
+  window.testProxies = testProxies;
 }
 
 const RetroGameInventory = () => {
