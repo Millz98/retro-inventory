@@ -1062,6 +1062,85 @@ const RetroGameInventory = () => {
     console.log('✅ Cleared manually fixed games list');
   };
 
+  // Add export function
+  const exportInventory = () => {
+    try {
+      const inventoryData = localStorage.getItem('retro-game-inventory');
+      const manuallyFixedData = localStorage.getItem('manually-fixed-games');
+      const lastUpdated = localStorage.getItem('inventory-last-updated');
+      
+      const exportData = {
+        inventory: inventoryData ? JSON.parse(inventoryData) : [],
+        manuallyFixedGames: manuallyFixedData ? JSON.parse(manuallyFixedData) : [],
+        lastUpdated: lastUpdated,
+        exportDate: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `retro-inventory-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      console.log('✅ Inventory exported successfully');
+      alert('Inventory exported successfully!');
+    } catch (error) {
+      console.error('❌ Export failed:', error);
+      alert('Export failed: ' + error.message);
+    }
+  };
+
+  // Add import function
+  const importInventory = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const importData = JSON.parse(event.target.result);
+            
+            // Validate the import data
+            if (!importData.inventory || !Array.isArray(importData.inventory)) {
+              throw new Error('Invalid inventory data');
+            }
+            
+            // Import the data
+            localStorage.setItem('retro-game-inventory', JSON.stringify(importData.inventory));
+            if (importData.manuallyFixedGames) {
+              localStorage.setItem('manually-fixed-games', JSON.stringify(importData.manuallyFixedGames));
+            }
+            if (importData.lastUpdated) {
+              localStorage.setItem('inventory-last-updated', importData.lastUpdated);
+            }
+            
+            // Reload the app with new data
+            window.location.reload();
+            
+            console.log('✅ Inventory imported successfully');
+            alert('Inventory imported successfully! The page will reload.');
+          } catch (error) {
+            console.error('❌ Import failed:', error);
+            alert('Import failed: ' + error.message);
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
+  // Make functions available globally
+  if (typeof window !== 'undefined') {
+    window.exportInventory = exportInventory;
+    window.importInventory = importInventory;
+  }
+
   // Add debug function to show current state
   const debugPriceUpdateState = () => {
     console.log('🔍 Debugging price update state...');
@@ -1619,6 +1698,26 @@ const RetroGameInventory = () => {
           <div style={styles.header}>
             <h1 style={styles.title}>Retro Game Inventory</h1>
             <div style={{display: 'flex', gap: '8px'}}>
+              <button
+                onClick={exportInventory}
+                style={{
+                  ...styles.buttonSecondary,
+                  fontSize: '12px',
+                  padding: '6px 12px'
+                }}
+              >
+                📤 Export Data
+              </button>
+              <button
+                onClick={importInventory}
+                style={{
+                  ...styles.buttonSecondary,
+                  fontSize: '12px',
+                  padding: '6px 12px'
+                }}
+              >
+                📥 Import Data
+              </button>
               <button
                 onClick={updateExchangeRate}
                 disabled={isUpdatingExchangeRate}
