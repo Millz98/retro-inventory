@@ -418,7 +418,24 @@ async function fetchMultipleGamePrices(games) {
           if (gameData) {
             // Get the appropriate price field for this game's condition
             const priceField = getPriceFieldForCondition(game.condition);
-            const rawPrice = gameData[priceField] || gameData['loose-price'] || '$0';
+            let rawPrice = gameData[priceField] || gameData['loose-price'] || '$0';
+            
+            // Check if the selected price field is empty or $0, try other fields
+            if (!rawPrice || rawPrice === '$0' || rawPrice === 'N/A' || rawPrice === '0') {
+              console.log(`⚠️ Selected price field "${priceField}" is empty for "${game.title}", trying other fields...`);
+              
+              // Try all available price fields in order of preference
+              const priceFields = ['loose-price', 'complete-price', 'new-price', 'box-only-price', 'manual-only-price', 'graded-price'];
+              
+              for (const field of priceFields) {
+                const testPrice = gameData[field];
+                if (testPrice && testPrice !== '$0' && testPrice !== 'N/A' && testPrice !== '0') {
+                  console.log(`✅ Found valid price in "${field}": ${testPrice}`);
+                  rawPrice = testPrice;
+                  break;
+                }
+              }
+            }
             
             // Handle Canadian dollar format (C$)
             let finalPriceCAD;
@@ -450,6 +467,16 @@ async function fetchMultipleGamePrices(games) {
             console.log(`   CAD price: $${finalPriceCAD.toFixed(2)} (rate: ${exchangeRate})`);
             console.log(`   Price format: ${isCADPrice ? 'CAD' : 'USD'}`);
             
+            // Warn if we still have $0 price
+            if (finalPriceCAD === 0) {
+              console.warn(`⚠️ WARNING: "${game.title}" still shows $0.00 CAD`);
+              console.log(`   This might be due to:`);
+              console.log(`   - Game not found in PriceCharting data`);
+              console.log(`   - All price fields are empty in the data`);
+              console.log(`   - Data parsing issue`);
+              console.log(`   Try running: debugGamePrice("${game.title}", "${game.console}", "${game.condition}")`);
+            }
+            
             results.push({
               id: game.id,
               console: game.console,
@@ -468,6 +495,7 @@ async function fetchMultipleGamePrices(games) {
           } else {
             console.warn(`❌ "${game.title}" not found in PriceCharting ${game.console} data`);
             console.log(`   Available products in this console:`, processedGames.map(pg => pg['product-name']).slice(0, 10));
+            console.log(`   Try running: debugGamePrice("${game.title}", "${game.console}", "${game.condition}")`);
             errors.push({
               id: game.id,
               title: game.title,
@@ -614,11 +642,34 @@ async function debugGamePrice(gameTitle, consoleName, condition = 'Cart Only') {
     
     console.log(`📊 Found ${allGames.length} total games in ${consoleId} data`);
     
-    // Find the specific game
-    const gameData = allGames.find(game => 
+    // Find the specific game with multiple matching strategies
+    let gameData = allGames.find(game => 
       game['product-name'] && 
       game['product-name'].toLowerCase().includes(gameTitle.toLowerCase())
     );
+    
+    // If no match, try fuzzy matching
+    if (!gameData) {
+      console.log(`🔍 No exact match, trying fuzzy matching...`);
+      
+      const cleanTitle = gameTitle.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .replace(/\b(the|a|an|and|or|but|in|on|at|to|for|of|with|by)\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      gameData = allGames.find(game => {
+        if (!game['product-name']) return false;
+        
+        const cleanProductName = game['product-name'].toLowerCase()
+          .replace(/[^\w\s]/g, '')
+          .replace(/\b(the|a|an|and|or|but|in|on|at|to|for|of|with|by)\b/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        return cleanProductName.includes(cleanTitle) || cleanTitle.includes(cleanProductName);
+      });
+    }
     
     if (gameData) {
       console.log(`\n🎯 Found game data:`);
@@ -636,13 +687,42 @@ async function debugGamePrice(gameTitle, consoleName, condition = 'Cart Only') {
       };
       
       console.log(`\n💰 All available prices:`);
+      let hasValidPrice = false;
       Object.entries(allPrices).forEach(([priceType, price]) => {
-        console.log(`   ${priceType}: ${price}`);
+        const isValid = price && price !== 'N/A' && price !== '$0' && price !== '0';
+        const status = isValid ? '✅' : '❌';
+        console.log(`   ${status} ${priceType}: ${price}`);
+        if (isValid) hasValidPrice = true;
       });
+      
+      if (!hasValidPrice) {
+        console.log(`\n⚠️ PROBLEM: All price fields are empty or $0!`);
+        console.log(`   This could mean:`);
+        console.log(`   - The game has no recent sales data`);
+        console.log(`   - PriceCharting data is incomplete for this game`);
+        console.log(`   - The game might be listed under a different name`);
+        console.log(`   - Try searching on PriceCharting website manually`);
+      }
       
       // Get condition-appropriate price
       const priceField = getPriceFieldForCondition(condition);
-      const rawPrice = gameData[priceField] || gameData['loose-price'] || '$0';
+      let rawPrice = gameData[priceField] || gameData['loose-price'] || '$0';
+      
+      // Try to find any valid price if the selected one is empty
+      if (!rawPrice || rawPrice === '$0' || rawPrice === 'N/A' || rawPrice === '0') {
+        console.log(`\n🔍 Selected price field "${priceField}" is empty, searching for any valid price...`);
+        
+        const priceFields = ['loose-price', 'complete-price', 'new-price', 'box-only-price', 'manual-only-price', 'graded-price'];
+        
+        for (const field of priceFields) {
+          const testPrice = gameData[field];
+          if (testPrice && testPrice !== '$0' && testPrice !== 'N/A' && testPrice !== '0') {
+            console.log(`✅ Found valid price in "${field}": ${testPrice}`);
+            rawPrice = testPrice;
+            break;
+          }
+        }
+      }
       
       console.log(`\n🎯 Price for condition "${condition}":`);
       console.log(`   Selected field: ${priceField}`);
@@ -675,6 +755,17 @@ async function debugGamePrice(gameTitle, consoleName, condition = 'Cart Only') {
         console.log(`   CAD price: $${finalPriceCAD.toFixed(2)}`);
       }
       
+      if (finalPriceCAD === 0) {
+        console.log(`\n❌ RESULT: Game shows $0.00 CAD`);
+        console.log(`   SOLUTIONS:`);
+        console.log(`   1. Check PriceCharting website manually`);
+        console.log(`   2. Try different game title variations`);
+        console.log(`   3. Check if game is listed under different console`);
+        console.log(`   4. Game might have no recent sales data`);
+      } else {
+        console.log(`\n✅ RESULT: Game shows $${finalPriceCAD.toFixed(2)} CAD`);
+      }
+      
       console.log(`\n🔗 Check this game on PriceCharting: https://www.pricecharting.com/game/${consoleId}/${gameData['product-name'].toLowerCase().replace(/\s+/g, '-')}`);
       
     } else {
@@ -683,11 +774,17 @@ async function debugGamePrice(gameTitle, consoleName, condition = 'Cart Only') {
       const similarGames = allGames.filter(game => 
         game['product-name'] && 
         game['product-name'].toLowerCase().includes(gameTitle.toLowerCase().split(' ')[0])
-      ).slice(0, 5);
+      ).slice(0, 10);
       
       similarGames.forEach(game => {
         console.log(`   - ${game['product-name']} (${game['loose-price'] || 'N/A'})`);
       });
+      
+      console.log(`\n💡 SUGGESTIONS:`);
+      console.log(`   1. Try different title variations (e.g., "Super Mario Bros" vs "Super Mario Bros.")`);
+      console.log(`   2. Check if game is listed under different console`);
+      console.log(`   3. Search PriceCharting website manually`);
+      console.log(`   4. Game might not be in PriceCharting database`);
     }
     
   } catch (error) {
