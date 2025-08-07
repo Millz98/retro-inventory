@@ -954,6 +954,7 @@ const RetroGameInventory = () => {
   const [exchangeRate, setExchangeRate] = useState(1.35);
   const [exchangeRateDate, setExchangeRateDate] = useState(null);
   const [isUpdatingExchangeRate, setIsUpdatingExchangeRate] = useState(false);
+  const [manuallyFixedGames, setManuallyFixedGames] = useState(new Set());
 
   const [formData, setFormData] = useState({
     console: '',
@@ -962,11 +963,24 @@ const RetroGameInventory = () => {
     condition: 'Cart Only'
   });
 
+  // Add function to clear manually fixed games
+  const clearManuallyFixedGames = () => {
+    setManuallyFixedGames(new Set());
+    localStorage.removeItem('manually-fixed-games');
+    console.log('✅ Cleared manually fixed games list');
+  };
+
+  // Make clear function available globally
+  if (typeof window !== 'undefined') {
+    window.clearManuallyFixedGames = clearManuallyFixedGames;
+  }
+
   // Save to localStorage
   const saveInventory = (inventoryData) => {
     try {
       localStorage.setItem('retro-game-inventory', JSON.stringify(inventoryData));
       localStorage.setItem('inventory-last-updated', new Date().toISOString());
+      localStorage.setItem('manually-fixed-games', JSON.stringify([...manuallyFixedGames]));
     } catch (error) {
       console.error('Failed to save inventory:', error);
     }
@@ -979,13 +993,15 @@ const RetroGameInventory = () => {
       const lastUpdated = localStorage.getItem('inventory-last-updated');
       const savedRate = localStorage.getItem('exchange-rate-usd-cad');
       const savedRateDate = localStorage.getItem('exchange-rate-date');
+      const savedManuallyFixed = localStorage.getItem('manually-fixed-games');
       
       if (saved) {
         return {
           inventory: JSON.parse(saved),
           lastUpdated: lastUpdated ? new Date(lastUpdated) : new Date(),
           exchangeRate: savedRate ? parseFloat(savedRate) : 1.35,
-          exchangeRateDate: savedRateDate || null
+          exchangeRateDate: savedRateDate || null,
+          manuallyFixedGames: savedManuallyFixed ? new Set(JSON.parse(savedManuallyFixed)) : new Set()
         };
       }
     } catch (error) {
@@ -1045,6 +1061,7 @@ const RetroGameInventory = () => {
         setLastUpdated(savedData.lastUpdated);
         setExchangeRate(savedData.exchangeRate);
         setExchangeRateDate(savedData.exchangeRateDate);
+        setManuallyFixedGames(savedData.manuallyFixedGames);
       }
       
       // Check and update exchange rate if needed
@@ -1120,10 +1137,11 @@ const RetroGameInventory = () => {
       saveInventory(updatedInventory);
       setLastUpdated(new Date());
       
-      // Set errors for display
+      // Set errors for display, but filter out manually fixed games
       if (errors.length > 0) {
-        setUpdateErrors(errors);
-        console.warn('Price update completed with errors:', errors);
+        const filteredErrors = errors.filter(error => !manuallyFixedGames.has(error.title));
+        setUpdateErrors(filteredErrors);
+        console.warn('Price update completed with errors:', filteredErrors);
       }
       
       // Show success message
@@ -1575,8 +1593,14 @@ const RetroGameInventory = () => {
                                   : item
                               );
                               setInventory(updatedInventory);
+                              
+                              // Add to manually fixed games
+                              const newManuallyFixed = new Set(manuallyFixedGames);
+                              newManuallyFixed.add(error.title);
+                              setManuallyFixedGames(newManuallyFixed);
+                              
                               saveInventory(updatedInventory);
-                              alert(`Updated "${error.title}" to $${manualPrice} CAD`);
+                              alert(`Updated "${error.title}" to $${manualPrice} CAD and marked as manually fixed`);
                             }
                           }}
                           style={{
@@ -1597,8 +1621,14 @@ const RetroGameInventory = () => {
                                 : item
                             );
                             setInventory(updatedInventory);
+                            
+                            // Add to manually fixed games
+                            const newManuallyFixed = new Set(manuallyFixedGames);
+                            newManuallyFixed.add(error.title);
+                            setManuallyFixedGames(newManuallyFixed);
+                            
                             saveInventory(updatedInventory);
-                            alert(`Updated "${error.title}" to estimated price: $${estimate.estimatedPriceCAD.toFixed(2)} CAD`);
+                            alert(`Updated "${error.title}" to estimated price: $${estimate.estimatedPriceCAD.toFixed(2)} CAD and marked as manually fixed`);
                           }}
                           style={{
                             ...styles.buttonSecondary,
