@@ -475,6 +475,29 @@ async function fetchMultipleGamePrices(games) {
               console.log(`   - All price fields are empty in the data`);
               console.log(`   - Data parsing issue`);
               console.log(`   Try running: debugGamePrice("${game.title}", "${game.console}", "${game.condition}")`);
+              
+              // Check if this is a "N/A" case (no recent sales data)
+              const allPricesEmpty = Object.values(gameData['available-prices']).every(price => 
+                !price || price === 'N/A' || price === '$0' || price === '0'
+              );
+              
+              if (allPricesEmpty) {
+                console.log(`\n💡 SOLUTION: This game has no recent sales data.`);
+                console.log(`   Options:`);
+                console.log(`   1. Check PriceCharting website manually for estimated value`);
+                console.log(`   2. Use eBay sold listings as reference`);
+                console.log(`   3. Enter a manual price estimate`);
+                console.log(`   4. Skip this game for now`);
+                
+                // Add to errors with specific message
+                errors.push({
+                  id: game.id,
+                  title: game.title,
+                  error: `No recent sales data - all price fields show N/A`,
+                  type: 'no_sales_data',
+                  available_prices: gameData['available-prices']
+                });
+              }
             }
             
             results.push({
@@ -795,6 +818,70 @@ async function debugGamePrice(gameTitle, consoleName, condition = 'Cart Only') {
 // Make debug function available globally
 if (typeof window !== 'undefined') {
   window.debugGamePrice = debugGamePrice;
+}
+
+// Add function to estimate prices for games with no sales data
+function estimateGamePrice(gameTitle, consoleName, condition) {
+  console.log(`🔍 Estimating price for "${gameTitle}" (${consoleName}) - ${condition}`);
+  
+  // Common price estimates based on game rarity and condition
+  const estimates = {
+    'NES': {
+      'common': { loose: 5, complete: 15, new: 30 },
+      'uncommon': { loose: 10, complete: 25, new: 50 },
+      'rare': { loose: 25, complete: 50, new: 100 },
+      'very_rare': { loose: 50, complete: 100, new: 200 }
+    },
+    'SNES': {
+      'common': { loose: 8, complete: 20, new: 40 },
+      'uncommon': { loose: 15, complete: 35, new: 70 },
+      'rare': { loose: 35, complete: 70, new: 150 },
+      'very_rare': { loose: 75, complete: 150, new: 300 }
+    }
+  };
+  
+  // Simple rarity detection based on game title
+  const commonGames = ['mario', 'sonic', 'tetris', 'pac-man', 'donkey kong', 'zelda', 'metroid'];
+  const rareGames = ['earthbound', 'chrono trigger', 'final fantasy', 'castlevania', 'mega man'];
+  
+  let rarity = 'common';
+  const titleLower = gameTitle.toLowerCase();
+  
+  if (rareGames.some(game => titleLower.includes(game))) {
+    rarity = 'rare';
+  } else if (commonGames.some(game => titleLower.includes(game))) {
+    rarity = 'common';
+  } else {
+    rarity = 'uncommon'; // Default for unknown games
+  }
+  
+  const consoleEstimates = estimates[consoleName] || estimates['NES'];
+  const conditionMap = {
+    'Cart Only': 'loose',
+    'Loose': 'loose',
+    'Complete in Box': 'complete',
+    'New/Sealed': 'new'
+  };
+  
+  const priceType = conditionMap[condition] || 'loose';
+  const estimatedPrice = consoleEstimates[rarity][priceType];
+  
+  console.log(`   Estimated rarity: ${rarity}`);
+  console.log(`   Condition type: ${priceType}`);
+  console.log(`   Estimated price: $${estimatedPrice} USD`);
+  console.log(`   Estimated CAD: $${(estimatedPrice * 1.37).toFixed(2)} CAD`);
+  
+  return {
+    estimatedPriceUSD: estimatedPrice,
+    estimatedPriceCAD: estimatedPrice * 1.37,
+    rarity: rarity,
+    confidence: 'low' // Always low confidence for estimates
+  };
+}
+
+// Make estimate function available globally
+if (typeof window !== 'undefined') {
+  window.estimateGamePrice = estimateGamePrice;
 }
 
 const RetroGameInventory = () => {
@@ -1469,7 +1556,63 @@ const RetroGameInventory = () => {
               </div>
               <div style={{fontSize: '14px', color: '#6b7280'}}>
                 {updateErrors.slice(0, 5).map((error, index) => (
-                  <div key={index}>• {error.title}: {error.error}</div>
+                  <div key={index} style={{marginBottom: '8px'}}>
+                    <div>• {error.title}: {error.error}</div>
+                    {error.type === 'no_sales_data' && (
+                      <div style={{marginLeft: '16px', marginTop: '4px'}}>
+                        <button
+                          onClick={() => {
+                            const estimate = estimateGamePrice(error.title, 'NES', 'Loose');
+                            const manualPrice = prompt(
+                              `Enter manual price for "${error.title}" (estimated: $${estimate.estimatedPriceCAD.toFixed(2)} CAD):`,
+                              estimate.estimatedPriceCAD.toFixed(2)
+                            );
+                            if (manualPrice && !isNaN(parseFloat(manualPrice))) {
+                              // Update the specific game with manual price
+                              const updatedInventory = inventory.map(item => 
+                                item.title === error.title 
+                                  ? { ...item, currentPrice: parseFloat(manualPrice), lastPrice: item.currentPrice }
+                                  : item
+                              );
+                              setInventory(updatedInventory);
+                              saveInventory(updatedInventory);
+                              alert(`Updated "${error.title}" to $${manualPrice} CAD`);
+                            }
+                          }}
+                          style={{
+                            ...styles.buttonSecondary,
+                            fontSize: '12px',
+                            padding: '4px 8px',
+                            marginTop: '4px'
+                          }}
+                        >
+                          💰 Enter Manual Price
+                        </button>
+                        <button
+                          onClick={() => {
+                            const estimate = estimateGamePrice(error.title, 'NES', 'Loose');
+                            const updatedInventory = inventory.map(item => 
+                              item.title === error.title 
+                                ? { ...item, currentPrice: estimate.estimatedPriceCAD, lastPrice: item.currentPrice }
+                                : item
+                            );
+                            setInventory(updatedInventory);
+                            saveInventory(updatedInventory);
+                            alert(`Updated "${error.title}" to estimated price: $${estimate.estimatedPriceCAD.toFixed(2)} CAD`);
+                          }}
+                          style={{
+                            ...styles.buttonSecondary,
+                            fontSize: '12px',
+                            padding: '4px 8px',
+                            marginTop: '4px',
+                            marginLeft: '8px'
+                          }}
+                        >
+                          🎯 Use Estimate
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))}
                 {updateErrors.length > 5 && (
                   <div>• ... and {updateErrors.length - 5} more errors</div>
