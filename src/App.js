@@ -1213,18 +1213,25 @@ const RetroGameInventory = () => {
         const priceUpdate = results.find(r => r.id === item.id);
         
         if (priceUpdate) {
+          // Game was found in PriceCharting data
+          const newPrice = priceUpdate.price_cad;
+          const oldPrice = item.currentPrice;
+          const priceChange = newPrice - oldPrice;
+          
+          console.log(`💰 ${item.title}: ${oldPrice.toFixed(2)} → ${newPrice.toFixed(2)} CAD (${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)})`);
+          
           return {
             ...item,
             lastPrice: item.currentPrice,
-            currentPrice: priceUpdate.price_cad
+            currentPrice: newPrice
           };
         } else {
-          // Check if this is a manually fixed game that couldn't be found in PriceCharting
+          // Game not found in PriceCharting data
           if (manuallyFixedGames.has(item.title)) {
             console.log(`✅ Preserving manually fixed price for "${item.title}" (not found in PriceCharting data)`);
             return item; // Keep the current price unchanged
           } else {
-            // Keep existing price if update failed (for non-manually fixed games)
+            // Regular game not found - keep existing price
             console.warn(`No price update found for: ${item.title} (${item.console})`);
             return item;
           }
@@ -1237,14 +1244,32 @@ const RetroGameInventory = () => {
       
       // Set errors for display, but filter out manually fixed games
       if (errors.length > 0) {
-        const filteredErrors = errors.filter(error => !manuallyFixedGames.has(error.title));
+        // Only show errors for games that couldn't be found in PriceCharting data
+        // Games that were successfully updated should not show as errors
+        const filteredErrors = errors.filter(error => {
+          // Check if this game was successfully updated in this run
+          const wasUpdated = results.some(r => r.id === error.id);
+          
+          if (wasUpdated) {
+            // Game was updated successfully - don't show as error
+            return false;
+          }
+          
+          // Game wasn't updated - show as error
+          return true;
+        });
+        
         setUpdateErrors(filteredErrors);
         console.warn('Price update completed with errors:', filteredErrors);
         
-        // Log which games were ignored due to manual fixes
-        const ignoredGames = errors.filter(error => manuallyFixedGames.has(error.title));
-        if (ignoredGames.length > 0) {
-          console.log('✅ Ignored manually fixed games:', ignoredGames.map(g => g.title));
+        // Log which games were successfully updated
+        const updatedGames = results.map(r => {
+          const game = inventory.find(item => item.id === r.id);
+          return game ? game.title : 'Unknown';
+        });
+        
+        if (updatedGames.length > 0) {
+          console.log('✅ Successfully updated games:', updatedGames);
         }
       }
       
@@ -1743,6 +1768,71 @@ const RetroGameInventory = () => {
                           }}
                         >
                           🎯 Use Estimate
+                        </button>
+                        {manuallyFixedGames.has(error.title) && (
+                          <button
+                            onClick={() => {
+                              // Remove from manually fixed games
+                              const newManuallyFixed = new Set(manuallyFixedGames);
+                              newManuallyFixed.delete(error.title);
+                              setManuallyFixedGames(newManuallyFixed);
+                              saveInventory(inventory);
+                              alert(`Removed "${error.title}" from manually fixed list - it will be re-evaluated on next update`);
+                            }}
+                            style={{
+                              ...styles.buttonSecondary,
+                              fontSize: '12px',
+                              padding: '4px 8px',
+                              marginTop: '4px',
+                              marginLeft: '8px',
+                              backgroundColor: '#fef2f2',
+                              color: '#dc2626',
+                              borderColor: '#fecaca'
+                            }}
+                          >
+                            🔄 Re-evaluate
+                          </button>
+                        )}
+                        <button
+                          onClick={async () => {
+                            try {
+                              // Try to fetch current PriceCharting data for this game
+                              const estimate = estimateGamePrice(error.title, 'NES', 'Loose');
+                              const newPrice = prompt(
+                                `Enter new PriceCharting price for "${error.title}" (current: $${estimate.estimatedPriceCAD.toFixed(2)} CAD):`,
+                                estimate.estimatedPriceCAD.toFixed(2)
+                              );
+                              
+                              if (newPrice && !isNaN(parseFloat(newPrice))) {
+                                const updatedInventory = inventory.map(item => 
+                                  item.title === error.title 
+                                    ? { 
+                                        ...item, 
+                                        lastPrice: item.currentPrice,
+                                        currentPrice: parseFloat(newPrice)
+                                      }
+                                    : item
+                                );
+                                setInventory(updatedInventory);
+                                saveInventory(updatedInventory);
+                                alert(`Updated "${error.title}" to $${newPrice} CAD with price change tracking`);
+                              }
+                            } catch (err) {
+                              alert(`Error updating price: ${err.message}`);
+                            }
+                          }}
+                          style={{
+                            ...styles.buttonSecondary,
+                            fontSize: '12px',
+                            padding: '4px 8px',
+                            marginTop: '4px',
+                            marginLeft: '8px',
+                            backgroundColor: '#f0fdf4',
+                            color: '#16a34a',
+                            borderColor: '#bbf7d0'
+                          }}
+                        >
+                          📈 Update from PriceCharting
                         </button>
                       </div>
                     )}
