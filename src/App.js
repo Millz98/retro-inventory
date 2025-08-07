@@ -205,19 +205,20 @@ async function fetchMultipleGamePrices(games) {
       console.log(`\n🔍 Fetching data for YOUR ${consoleGames.length} ${consoleId.toUpperCase()} games:`);
       consoleGames.forEach(game => console.log(`   - ${game.title}`));
       
-      // Configuration: Choose your deployment method
-      const USE_CORS_PROXY = true; // Set to false to use backend API
+      // Try multiple CORS proxy services for better reliability
+      const corsProxies = [
+        'https://api.allorigins.win/raw?url=',
+        'https://cors-anywhere.herokuapp.com/',
+        'https://thingproxy.freeboard.io/fetch/'
+      ];
       
-      if (USE_CORS_PROXY) {
-        // Option A: CORS proxy (simple, works immediately)
-        var url = `https://api.allorigins.win/raw?url=${encodeURIComponent(`${BASE_URL}?t=${API_TOKEN}&category=${consoleId}-games`)}`;
-      } else {
-        // Option B: Your own backend (more reliable, requires API setup)
-        const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
-        var url = `${API_BASE}/api/pricecharting/${consoleId}`;
-      }
+      const targetUrl = `${BASE_URL}?t=${API_TOKEN}&category=${consoleId}-games`;
+      
+      // Try the first proxy
+      let url = corsProxies[0] + encodeURIComponent(targetUrl);
       
       console.log(`🌐 Fetching from: ${url}`);
+      console.log(`📡 Target URL: ${targetUrl}`);
       const response = await fetch(url);
       
       if (!response.ok) {
