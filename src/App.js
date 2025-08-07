@@ -820,6 +820,98 @@ if (typeof window !== 'undefined') {
   window.debugGamePrice = debugGamePrice;
 }
 
+// Add specific debug function for Golf
+async function debugGolf() {
+  console.log('🔍 Debugging Golf specifically...');
+  
+  try {
+    const exchangeRate = await getExchangeRate();
+    console.log(`💱 Current exchange rate: 1 USD = ${exchangeRate.toFixed(6)} CAD`);
+    
+    const consoleId = getConsoleId('NES');
+    const targetUrl = `${BASE_URL}?t=${API_TOKEN}&category=${consoleId}-games`;
+    
+    console.log(`📡 Fetching data from: ${targetUrl}`);
+    
+    // Use the first working proxy
+    const proxy = 'https://corsproxy.io/?';
+    const url = proxy + encodeURIComponent(targetUrl);
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const csvText = await response.text();
+    const allGames = parseCSV(csvText);
+    
+    console.log(`📊 Found ${allGames.length} total games in NES data`);
+    
+    // Search for Golf specifically
+    const golfGames = allGames.filter(game => 
+      game['product-name'] && 
+      game['product-name'].toLowerCase().includes('golf')
+    );
+    
+    console.log(`\n🎯 Found ${golfGames.length} Golf-related games:`);
+    golfGames.forEach((game, index) => {
+      console.log(`   ${index + 1}. "${game['product-name']}" - Loose: ${game['loose-price'] || 'N/A'}`);
+    });
+    
+    // Try exact match
+    const exactMatch = allGames.find(game => 
+      game['product-name'] && 
+      game['product-name'].toLowerCase() === 'golf'
+    );
+    
+    if (exactMatch) {
+      console.log(`\n✅ Exact match found: "${exactMatch['product-name']}"`);
+      console.log(`   Loose price: ${exactMatch['loose-price'] || 'N/A'}`);
+      console.log(`   Complete price: ${exactMatch['complete-price'] || 'N/A'}`);
+      console.log(`   New price: ${exactMatch['new-price'] || 'N/A'}`);
+    } else {
+      console.log(`\n❌ No exact match for "Golf"`);
+    }
+    
+    // Try fuzzy matching
+    const fuzzyMatches = allGames.filter(game => {
+      if (!game['product-name']) return false;
+      
+      const cleanTitle = 'golf'.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .replace(/\b(the|a|an|and|or|but|in|on|at|to|for|of|with|by)\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      const cleanProductName = game['product-name'].toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .replace(/\b(the|a|an|and|or|but|in|on|at|to|for|of|with|by)\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      return cleanProductName.includes(cleanTitle) || cleanTitle.includes(cleanProductName);
+    });
+    
+    console.log(`\n🔍 Fuzzy matches for "Golf":`);
+    fuzzyMatches.forEach((game, index) => {
+      console.log(`   ${index + 1}. "${game['product-name']}" - Loose: ${game['loose-price'] || 'N/A'}`);
+    });
+    
+  } catch (error) {
+    console.error(`❌ Error debugging Golf:`, error);
+  }
+}
+
+// Make debug function available globally
+if (typeof window !== 'undefined') {
+  window.debugGolf = debugGolf;
+}
+
 // Add function to estimate prices for games with no sales data
 function estimateGamePrice(gameTitle, consoleName, condition) {
   console.log(`🔍 Estimating price for "${gameTitle}" (${consoleName}) - ${condition}`);
@@ -1127,9 +1219,15 @@ const RetroGameInventory = () => {
             currentPrice: priceUpdate.price_cad
           };
         } else {
-          // Keep existing price if update failed
-          console.warn(`No price update found for: ${item.title} (${item.console})`);
-          return item;
+          // Check if this is a manually fixed game that couldn't be found in PriceCharting
+          if (manuallyFixedGames.has(item.title)) {
+            console.log(`✅ Preserving manually fixed price for "${item.title}" (not found in PriceCharting data)`);
+            return item; // Keep the current price unchanged
+          } else {
+            // Keep existing price if update failed (for non-manually fixed games)
+            console.warn(`No price update found for: ${item.title} (${item.console})`);
+            return item;
+          }
         }
       });
       
@@ -1142,6 +1240,12 @@ const RetroGameInventory = () => {
         const filteredErrors = errors.filter(error => !manuallyFixedGames.has(error.title));
         setUpdateErrors(filteredErrors);
         console.warn('Price update completed with errors:', filteredErrors);
+        
+        // Log which games were ignored due to manual fixes
+        const ignoredGames = errors.filter(error => manuallyFixedGames.has(error.title));
+        if (ignoredGames.length > 0) {
+          console.log('✅ Ignored manually fixed games:', ignoredGames.map(g => g.title));
+        }
       }
       
       // Show success message
