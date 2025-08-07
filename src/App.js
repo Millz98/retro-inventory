@@ -975,24 +975,6 @@ function estimateGamePrice(gameTitle, consoleName, condition) {
 if (typeof window !== 'undefined') {
   window.estimateGamePrice = estimateGamePrice;
 }
-
-// Add debug function to show current state
-function debugPriceUpdateState() {
-  console.log('🔍 Debugging price update state...');
-  console.log('📊 Manually fixed games:', Array.from(manuallyFixedGames));
-  console.log('📈 Results (successfully updated):', results ? results.map(r => {
-    const game = inventory.find(item => item.id === r.id);
-    return game ? game.title : 'Unknown';
-  }) : 'No results yet');
-  console.log('❌ Errors:', errors ? errors.map(e => e.title) : 'No errors yet');
-  console.log('🎯 Filtered errors:', updateErrors.map(e => e.title));
-}
-
-// Make debug function available globally
-if (typeof window !== 'undefined') {
-  window.debugPriceUpdateState = debugPriceUpdateState;
-}
-
 const RetroGameInventory = () => {
   // Sample data - replace with your actual data source
   const [inventory, setInventory] = useState([
