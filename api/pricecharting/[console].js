@@ -1,5 +1,5 @@
 // api/pricecharting/[console].js
-const fetch = require('node-fetch');
+import fetch from 'node-fetch';
 
 const API_TOKEN = process.env.PRICECHARTING_API_TOKEN || '7266e10ff3b667fb944fc578b289faffb0b9c2dc';
 const BASE_URL = 'https://www.pricecharting.com/price-guide/download-custom';
@@ -22,6 +22,12 @@ export default async function handler(req, res) {
 
   try {
     const { console: consoleName } = req.query;
+    
+    if (!consoleName) {
+      res.status(400).json({ error: 'Console parameter is required' });
+      return;
+    }
+    
     const url = `${BASE_URL}?t=${API_TOKEN}&category=${consoleName}-games`;
     
     console.log(`Fetching data for console: ${consoleName}`);
@@ -30,10 +36,17 @@ export default async function handler(req, res) {
     const response = await fetch(url);
     
     if (!response.ok) {
-      throw new Error(`PriceCharting API error: ${response.status}`);
+      console.error(`PriceCharting API error: ${response.status} ${response.statusText}`);
+      res.status(500).json({ 
+        error: `PriceCharting API error: ${response.status}`,
+        message: response.statusText 
+      });
+      return;
     }
     
     const csvData = await response.text();
+    
+    console.log(`Successfully fetched ${csvData.length} characters of CSV data`);
     
     res.setHeader('Content-Type', 'text/csv');
     res.status(200).send(csvData);
