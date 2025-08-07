@@ -976,6 +976,23 @@ if (typeof window !== 'undefined') {
   window.estimateGamePrice = estimateGamePrice;
 }
 
+// Add debug function to show current state
+function debugPriceUpdateState() {
+  console.log('🔍 Debugging price update state...');
+  console.log('📊 Manually fixed games:', Array.from(manuallyFixedGames));
+  console.log('📈 Results (successfully updated):', results ? results.map(r => {
+    const game = inventory.find(item => item.id === r.id);
+    return game ? game.title : 'Unknown';
+  }) : 'No results yet');
+  console.log('❌ Errors:', errors ? errors.map(e => e.title) : 'No errors yet');
+  console.log('🎯 Filtered errors:', updateErrors.map(e => e.title));
+}
+
+// Make debug function available globally
+if (typeof window !== 'undefined') {
+  window.debugPriceUpdateState = debugPriceUpdateState;
+}
+
 const RetroGameInventory = () => {
   // Sample data - replace with your actual data source
   const [inventory, setInventory] = useState([
@@ -1244,8 +1261,8 @@ const RetroGameInventory = () => {
       
       // Set errors for display, but filter out manually fixed games
       if (errors.length > 0) {
-        // Only show errors for games that couldn't be found in PriceCharting data
-        // Games that were successfully updated should not show as errors
+        // Show errors for games that couldn't be found in PriceCharting data
+        // This allows manual price entry for games that need it
         const filteredErrors = errors.filter(error => {
           // Check if this game was successfully updated in this run
           const wasUpdated = results.some(r => r.id === error.id);
@@ -1255,7 +1272,7 @@ const RetroGameInventory = () => {
             return false;
           }
           
-          // Game wasn't updated - show as error
+          // Game wasn't updated - show as error so user can manually fix it
           return true;
         });
         
@@ -1270,6 +1287,11 @@ const RetroGameInventory = () => {
         
         if (updatedGames.length > 0) {
           console.log('✅ Successfully updated games:', updatedGames);
+        }
+        
+        // Log which games still need manual attention
+        if (filteredErrors.length > 0) {
+          console.log('⚠️ Games needing manual attention:', filteredErrors.map(e => e.title));
         }
       }
       
