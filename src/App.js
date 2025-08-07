@@ -205,12 +205,17 @@ async function fetchMultipleGamePrices(games) {
       console.log(`\n🔍 Fetching data for YOUR ${consoleGames.length} ${consoleId.toUpperCase()} games:`);
       consoleGames.forEach(game => console.log(`   - ${game.title}`));
       
-      // Determine API base URL based on environment
-      const API_BASE = process.env.NODE_ENV === 'production' 
-        ? '' // Use same domain in production
-        : 'http://localhost:3001';
+      // Configuration: Choose your deployment method
+      const USE_CORS_PROXY = true; // Set to false to use backend API
       
-      const url = `${API_BASE}/api/pricecharting/${consoleId}`;
+      if (USE_CORS_PROXY) {
+        // Option A: CORS proxy (simple, works immediately)
+        var url = `https://api.allorigins.win/raw?url=${encodeURIComponent(`${BASE_URL}?t=${API_TOKEN}&category=${consoleId}-games`)}`;
+      } else {
+        // Option B: Your own backend (more reliable, requires API setup)
+        const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
+        var url = `${API_BASE}/api/pricecharting/${consoleId}`;
+      }
       
       console.log(`🌐 Fetching from: ${url}`);
       const response = await fetch(url);
