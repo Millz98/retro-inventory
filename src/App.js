@@ -1302,6 +1302,12 @@ const RetroGameInventory = () => {
       
       // Update inventory with new prices
       const updatedInventory = inventory.map(item => {
+        // Check if this game is manually fixed - if so, preserve its price
+        if (manuallyFixedGames.has(item.title)) {
+          console.log(`✅ Preserving manually fixed price for "${item.title}" (ignored during price update)`);
+          return item; // Keep the current price unchanged
+        }
+        
         const priceUpdate = results.find(r => r.id === item.id);
         
         if (priceUpdate) {
@@ -1319,14 +1325,8 @@ const RetroGameInventory = () => {
           };
         } else {
           // Game not found in PriceCharting data
-          if (manuallyFixedGames.has(item.title)) {
-            console.log(`✅ Preserving manually fixed price for "${item.title}" (not found in PriceCharting data)`);
-            return item; // Keep the current price unchanged
-          } else {
-            // Regular game not found - keep existing price
-            console.warn(`No price update found for: ${item.title} (${item.console})`);
-            return item;
-          }
+          console.warn(`No price update found for: ${item.title} (${item.console})`);
+          return item; // Keep existing price
         }
       });
       
@@ -1347,8 +1347,13 @@ const RetroGameInventory = () => {
             return false;
           }
           
-          // Game wasn't updated - show as error so user can manually fix it
-          // This includes games with no sales data, regardless of manual fix status
+          // Check if this game is manually fixed - if so, don't show as error
+          if (manuallyFixedGames.has(error.title)) {
+            console.log(`✅ Ignoring manually fixed game "${error.title}" in error display`);
+            return false;
+          }
+          
+          // Game wasn't updated and isn't manually fixed - show as error so user can manually fix it
           return true;
         });
         
@@ -1368,6 +1373,14 @@ const RetroGameInventory = () => {
         // Log which games still need manual attention
         if (filteredErrors.length > 0) {
           console.log('⚠️ Games needing manual attention:', filteredErrors.map(e => e.title));
+        }
+        
+        // Log which manually fixed games were ignored
+        const ignoredManuallyFixed = errors.filter(error => 
+          manuallyFixedGames.has(error.title) && !results.some(r => r.id === error.id)
+        );
+        if (ignoredManuallyFixed.length > 0) {
+          console.log('✅ Manually fixed games ignored:', ignoredManuallyFixed.map(e => e.title));
         }
       }
       
